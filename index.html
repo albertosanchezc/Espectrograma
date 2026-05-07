@@ -96,6 +96,7 @@
     <canvas id="scope"></canvas>
 
     <div class="info" id="info"></div>
+    <script src="https://unpkg.com/fft.js/lib/fft.js"></script>
 
     <script>
 
@@ -103,6 +104,20 @@
         // CANVAS
         //========================================
 
+
+        const specCanvas = document.getElementById("spec");
+        const rtaCanvas = document.getElementById("rta");
+        const scopeCanvas = document.getElementById("scope");
+
+        const infoBox = document.getElementById("info");
+
+        const micBtn = document.getElementById("micBtn");
+        const fileInput = document.getElementById("fileInput");
+        const pauseBtn = document.getElementById("pauseBtn");
+
+        const fftSel = document.getElementById("fftSel");
+        const rangeSel = document.getElementById("rangeSel");
+        const smoothSel = document.getElementById("smoothSel");
         function fixCanvas() {
 
             ["spec", "rta", "scope"].forEach(id => {
@@ -123,6 +138,11 @@
         let audioCtx, analyser;
 
         let freqData, timeData;
+
+        let rawAudio;
+
+        let fft;
+        let processor;
 
         let fftSize = 4096;
         let maxFreq = 4000;
@@ -177,9 +197,13 @@
 
         function setup(src) {
 
-            analyser = audioCtx.createAnalyser();
+            sourceNode = src;
 
+            analyser = audioCtx.createAnalyser();
+            analyser.smoothingTimeConstant = 0;
             analyser.fftSize = fftSize;
+
+            fft = new FFT(fftSize);
 
             freqData = new Float32Array(
                 analyser.frequencyBinCount
@@ -189,13 +213,30 @@
                 analyser.fftSize
             );
 
-            src.connect(analyser);
+            processor = audioCtx.createScriptProcessor(
+                fftSize,
+                1,
+                1
+            );
+
+            processor.onaudioprocess = e => {
+
+                rawAudio = new Float32Array(
+                    e.inputBuffer.getChannelData(0)
+                );
+            };
+
+            // cadena estable
+            sourceNode.connect(analyser);
+
+            analyser.connect(processor);
+
+            processor.connect(audioCtx.destination);
 
             running = true;
 
             draw();
         }
-
         //========================================
         // INPUTS
         //========================================
@@ -278,7 +319,6 @@
             requestAnimationFrame(draw);
 
             analyser.getFloatFrequencyData(freqData);
-
             analyser.getByteTimeDomainData(timeData);
 
             drawSpec();
@@ -354,8 +394,7 @@
 
         function drawSpec() {
 
-            const c = spec;
-
+            const c = specCanvas;
             const ctx = c.getContext("2d");
 
             const w = c.width;
@@ -408,13 +447,12 @@
 
                 let peak = -999;
 
+                const binHz =
+                    audioCtx.sampleRate / fftSize;
+
                 for (let i = 1; i < freqData.length; i++) {
 
-                    const f =
-                        i *
-                        (audioCtx.sampleRate / 2)
-                        /
-                        freqData.length;
+                    const f = i * binHz;
 
                     if (f >= f1 && f < f2) {
 
@@ -588,7 +626,7 @@
 
         function drawRTA() {
 
-            const c = rta;
+            const c = rtaCanvas;
 
             const ctx = c.getContext("2d");
 
@@ -713,13 +751,43 @@
             ctx.stroke();
         }
 
+
+
+
+
+        function applyHannWindow(buffer) {
+
+            const out =
+                new Float32Array(buffer.length);
+
+            const N = buffer.length;
+
+            for (let n = 0; n < N; n++) {
+
+                const w =
+                    0.5 *
+                    (
+                        1 -
+                        Math.cos(
+                            (2 * Math.PI * n)
+                            /
+                            (N - 1)
+                        )
+                    );
+
+                out[n] =
+                    buffer[n] * w;
+            }
+
+            return out;
+        }
         //========================================
         // OSCILLOSCOPE
         //========================================
 
         function drawScope() {
 
-            const c = scope;
+            const c = scopeCanvas;
 
             const ctx = c.getContext("2d");
 
@@ -777,7 +845,6 @@
                 (audioCtx.sampleRate / 2)
                 /
                 freqData.length;
-
             let detected = [];
 
             // ruido AC
@@ -873,13 +940,13 @@
                     +
                     visible.join(" | ");
 
-                info.className = "info warn";
+                infoBox.className = "info warn";
             }
             else {
 
                 text += " | ✔️ Señal OK";
 
-                info.className = "info ok";
+                infoBox.className = "info ok";
             }
 
             info.innerText = text;
@@ -920,7 +987,6 @@
         fixCanvas();
 
     </script>
-
 </body>
 
 </html>
