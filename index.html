@@ -132,6 +132,20 @@
 
         let bandSmooth = new Array(bands).fill(-100);
 
+        //====================================
+        // NUEVO
+        //====================================
+
+        const peakHold = new Array(bands).fill(-100);
+
+        const rmsAverage = new Array(bands).fill(-100);
+
+        const PEAK_DECAY = 0.25;
+
+        const RMS_SMOOTH = 0.97;
+
+        //====================================
+
         let running = false;
 
         //========================================
@@ -420,6 +434,30 @@
                     +
                     (1 - smoothing) * db;
 
+
+                //====================================
+                // PEAK HOLD
+                //====================================
+
+                if (db > peakHold[b]) {
+
+                    peakHold[b] = db;
+
+                } else {
+
+                    peakHold[b] -= PEAK_DECAY;
+                }
+
+                //====================================
+                // RMS
+                //====================================
+
+                rmsAverage[b] =
+                    RMS_SMOOTH * rmsAverage[b]
+                    +
+                    (1 - RMS_SMOOTH) * db;
+
+
                 let norm =
                     (bandSmooth[b] + 80) / 50;
 
@@ -562,6 +600,44 @@
 
             drawRTAScales(ctx, w, h);
 
+            //====================================
+            // RMS
+            //====================================
+
+            ctx.beginPath();
+
+            for (let b = 0; b < bands; b++) {
+
+                const f =
+                    20 * Math.pow(
+                        maxFreq / 20,
+                        b / bands
+                    );
+
+                const x =
+                    Math.log10(f / 20)
+                    /
+                    Math.log10(maxFreq / 20)
+                    * w;
+
+                const y =
+                    h -
+                    ((rmsAverage[b] + 100) / 100)
+                    * h;
+
+                if (b === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.strokeStyle = "#444";
+
+            ctx.lineWidth = 2;
+
+            ctx.stroke();
+
             ctx.beginPath();
 
             for (let b = 0; b < bands; b++) {
@@ -594,6 +670,45 @@
             ctx.strokeStyle = "#00ffaa";
 
             ctx.lineWidth = 2;
+
+            ctx.stroke();
+
+
+            //====================================
+            // PEAK HOLD
+            //====================================
+
+            ctx.beginPath();
+
+            for (let b = 0; b < bands; b++) {
+
+                const f =
+                    20 * Math.pow(
+                        maxFreq / 20,
+                        b / bands
+                    );
+
+                const x =
+                    Math.log10(f / 20)
+                    /
+                    Math.log10(maxFreq / 20)
+                    * w;
+
+                const y =
+                    h -
+                    ((peakHold[b] + 100) / 100)
+                    * h;
+
+                if (b === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.strokeStyle = "#ffff00";
+
+            ctx.lineWidth = 1.5;
 
             ctx.stroke();
         }
