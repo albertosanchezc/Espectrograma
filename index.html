@@ -1,351 +1,811 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8">
-<title>Audio Lab PRO - Diagnóstico</title>
+    <meta charset="UTF-8">
+    <title>Audio Lab PRO - Diagnóstico</title>
 
-<style>
-body{
-    margin:0;
-    background:#0a0a0a;
-    color:#eee;
-    font-family:Arial;
-    text-align:center;
-}
+    <style>
+        body {
+            margin: 0;
+            background: #0a0a0a;
+            color: #eee;
+            font-family: Arial;
+            text-align: center;
+        }
 
-canvas{
-    width:95vw;
-    height:250px;
-    margin:10px auto;
-    display:block;
-    border:1px solid #333;
-}
+        canvas {
+            width: 95vw;
+            height: 250px;
+            margin: 10px auto;
+            display: block;
+            border: 1px solid #333;
+            background: #000;
+        }
 
-#rta{ height:200px; }
-#scope{ height:150px; }
+        #rta {
+            height: 200px;
+        }
 
-.controls{
-    margin:10px;
-}
+        #scope {
+            height: 150px;
+        }
 
-button, select{
-    padding:6px;
-    margin:4px;
-}
+        .controls {
+            margin: 10px;
+        }
 
-.info{
-    color:#00ffaa;
-    margin-top:5px;
-    font-weight:bold;
-}
-.warn{ color:#ff4444; }
-.ok{ color:#00ffaa; }
-</style>
+        button,
+        select,
+        input {
+            padding: 6px;
+            margin: 4px;
+        }
+
+        .info {
+            color: #00ffaa;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        .warn {
+            color: #ff4444;
+        }
+
+        .ok {
+            color: #00ffaa;
+        }
+    </style>
 </head>
+
 <body>
 
-<h2>Audio Lab PRO - Diagnóstico</h2>
+    <h2>Audio Lab PRO - Diagnóstico</h2>
 
-<div class="controls">
-<button id="micBtn">Mic</button>
-<input type="file" id="fileInput">
+    <div class="controls">
 
-<select id="fftSel">
-<option value="2048">FFT 2048</option>
-<option value="4096" selected>FFT 4096</option>
-<option value="8192">FFT 8192</option>
-</select>
+        <button id="micBtn">Mic</button>
 
-<select id="rangeSel">
-<option value="4000" selected>4 kHz</option>
-<option value="8000">8 kHz</option>
-<option value="16000">16 kHz</option>
-<option value="22050">Full</option>
-</select>
+        <input type="file" id="fileInput">
 
-<select id="smoothSel">
-<option value="0.5">Suavizado Bajo</option>
-<option value="0.75" selected>Medio</option>
-<option value="0.9">Alto</option>
-</select>
+        <select id="fftSel">
+            <option value="2048">FFT 2048</option>
+            <option value="4096" selected>FFT 4096</option>
+            <option value="8192">FFT 8192</option>
+        </select>
 
-<button id="pauseBtn">Pausa</button>
-</div>
+        <select id="rangeSel">
+            <option value="4000" selected>4 kHz</option>
+            <option value="8000">8 kHz</option>
+            <option value="16000">16 kHz</option>
+            <option value="22050">Full</option>
+        </select>
 
-<canvas id="spec"></canvas>
-<canvas id="rta"></canvas>
-<canvas id="scope"></canvas>
+        <select id="smoothSel">
+            <option value="0.5">Suavizado Bajo</option>
+            <option value="0.75" selected>Medio</option>
+            <option value="0.9">Alto</option>
+        </select>
 
-<div class="info" id="info"></div>
+        <button id="pauseBtn">Pausa</button>
 
-<script>
+    </div>
 
-//========= CANVAS =========
-function fixCanvas(){
-    ["spec","rta","scope"].forEach(id=>{
-        const c=document.getElementById(id);
-        c.width=c.clientWidth;
-        c.height=c.clientHeight;
-    });
-}
-window.addEventListener("resize",fixCanvas);
+    <canvas id="spec"></canvas>
+    <canvas id="rta"></canvas>
+    <canvas id="scope"></canvas>
 
-//========= AUDIO =========
-let audioCtx, analyser;
-let freqData, timeData;
+    <div class="info" id="info"></div>
 
-let fftSize=4096;
-let maxFreq=4000;
-let smoothing=0.75;
+    <script>
 
-const bands=100;
-let bandSmooth=new Array(bands).fill(-100);
+        //========================================
+        // CANVAS
+        //========================================
 
-let running=false;
+        function fixCanvas() {
 
-//========= INIT =========
-function init(){
-    if(!audioCtx){
-        audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    }
-    if(audioCtx.state==="suspended") audioCtx.resume();
-}
+            ["spec", "rta", "scope"].forEach(id => {
 
-function setup(src){
-    analyser=audioCtx.createAnalyser();
-    analyser.fftSize=fftSize;
+                const c = document.getElementById(id);
 
-    freqData=new Float32Array(analyser.frequencyBinCount);
-    timeData=new Uint8Array(analyser.fftSize);
+                c.width = c.clientWidth;
+                c.height = c.clientHeight;
+            });
+        }
 
-    src.connect(analyser);
+        window.addEventListener("resize", fixCanvas);
 
-    running=true;
-    draw();
-}
+        //========================================
+        // AUDIO
+        //========================================
 
-//========= INPUT =========
-micBtn.onclick=async()=>{
-    init();
-    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    setup(audioCtx.createMediaStreamSource(stream));
-};
+        let audioCtx, analyser;
 
-fileInput.onchange=e=>{
-    const f=e.target.files[0];
-    if(!f) return;
+        let freqData, timeData;
 
-    init();
+        let fftSize = 4096;
+        let maxFreq = 4000;
+        let smoothing = 0.75;
 
-    const r=new FileReader();
-    r.onload=ev=>{
-        audioCtx.decodeAudioData(ev.target.result,b=>{
-            const src=audioCtx.createBufferSource();
-            src.buffer=b;
-            setup(src);
-            analyser.connect(audioCtx.destination);
-            src.start();
-        });
-    };
-    r.readAsArrayBuffer(f);
-};
+        const bands = 100;
 
-//========= UTILS =========
-function freqToY(freq,h){
-    const min=20;
-    return h - (Math.log10(freq)-Math.log10(min)) /
-    (Math.log10(maxFreq)-Math.log10(min))*h;
-}
+        let bandSmooth = new Array(bands).fill(-100);
 
-function getColor(v){
-    return `hsl(${240-v*240},100%,${v*50+25}%)`;
-}
+        let running = false;
 
-//========= DRAW =========
-function draw(){
-    if(!running) return;
+        //========================================
+        // WARNING HOLD
+        //========================================
 
-    requestAnimationFrame(draw);
+        let activeWarnings = {};
 
-    analyser.getFloatFrequencyData(freqData);
-    analyser.getByteTimeDomainData(timeData);
+        const HOLD_TIME = 1500;
 
-    drawSpec();
-    drawRTA();
-    drawScope();
-    analyze();
-}
+        //========================================
+        // INIT
+        //========================================
 
-//========= SPECTROGRAM =========
-function drawSpec(){
+        function init() {
 
-    const c=spec;
-    const ctx=c.getContext("2d");
-    const w=c.width,h=c.height;
+            if (!audioCtx) {
 
-    ctx.drawImage(c,-3,0);
-    ctx.fillStyle="#000";
-    ctx.fillRect(w-3,0,3,h);
+                audioCtx = new (
+                    window.AudioContext ||
+                    window.webkitAudioContext
+                )();
+            }
 
-    for(let b=0;b<bands;b++){
-
-        const f1=20*Math.pow(maxFreq/20,b/bands);
-        const f2=20*Math.pow(maxFreq/20,(b+1)/bands);
-
-        let sum=0,count=0;
-
-        for(let i=1;i<freqData.length;i++){
-            const f=i*(audioCtx.sampleRate/2)/freqData.length;
-            if(f>=f1&&f<f2){
-                sum+=freqData[i];
-                count++;
+            if (audioCtx.state === "suspended") {
+                audioCtx.resume();
             }
         }
 
-        if(!count) continue;
+        function setup(src) {
 
-        let db=sum/count;
+            analyser = audioCtx.createAnalyser();
 
-        bandSmooth[b]=smoothing*bandSmooth[b]+(1-smoothing)*db;
+            analyser.fftSize = fftSize;
 
-        let norm=(bandSmooth[b]+80)/50;
-        norm=Math.max(0,Math.min(1,norm));
+            freqData = new Float32Array(
+                analyser.frequencyBinCount
+            );
 
-        const y1=freqToY(f1,h);
-        const y2=freqToY(f2,h);
+            timeData = new Uint8Array(
+                analyser.fftSize
+            );
 
-        ctx.fillStyle=getColor(norm);
-        ctx.fillRect(w-3,y2,3,Math.max(2,y1-y2));
-    }
-}
+            src.connect(analyser);
 
-//========= RTA =========
-function drawRTA(){
+            running = true;
 
-    const c=rta;
-    const ctx=c.getContext("2d");
-    const w=c.width,h=c.height;
-
-    ctx.clearRect(0,0,w,h);
-
-    ctx.beginPath();
-
-    for(let b=0;b<bands;b++){
-        const f=20*Math.pow(maxFreq/20,b/bands);
-        const x=Math.log10(f/20)/Math.log10(maxFreq/20)*w;
-        const y=h-((bandSmooth[b]+100)/100)*h;
-
-        if(b===0) ctx.moveTo(x,y);
-        else ctx.lineTo(x,y);
-    }
-
-    ctx.strokeStyle="#00ffaa";
-    ctx.stroke();
-}
-
-//========= SCOPE =========
-function drawScope(){
-
-    const c=scope;
-    const ctx=c.getContext("2d");
-    const w=c.width,h=c.height;
-
-    ctx.clearRect(0,0,w,h);
-
-    ctx.beginPath();
-
-    for(let i=0;i<timeData.length;i++){
-        const x=i/timeData.length*w;
-        const y=(timeData[i]/255)*h;
-
-        if(i===0) ctx.moveTo(x,y);
-        else ctx.lineTo(x,y);
-    }
-
-    ctx.strokeStyle="#ffaa00";
-    ctx.stroke();
-}
-
-//========= 🔥 DIAGNÓSTICO =========
-function analyze(){
-
-    let max=-999, idx=0;
-
-    for(let i=0;i<freqData.length;i++){
-        if(freqData[i]>max){
-            max=freqData[i];
-            idx=i;
+            draw();
         }
-    }
 
-    const freq = idx*(audioCtx.sampleRate/2)/freqData.length;
+        //========================================
+        // INPUTS
+        //========================================
 
-    // ===== detección =====
-    let warnings=[];
+        micBtn.onclick = async () => {
 
-    // 50/60 Hz
-    if(freq>45 && freq<65 && max>-60){
-        warnings.push("⚠️ Ruido eléctrico (50/60 Hz)");
-    }
+            init();
 
-    // armónicos (múltiplos)
-    let harmonics=0;
-    for(let h=2;h<=5;h++){
-        let i=Math.floor(idx*h);
-        if(i<freqData.length && freqData[i]>-70){
-            harmonics++;
+            const stream =
+                await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+
+            setup(
+                audioCtx.createMediaStreamSource(stream)
+            );
+        };
+
+        fileInput.onchange = e => {
+
+            const f = e.target.files[0];
+
+            if (!f) return;
+
+            init();
+
+            const r = new FileReader();
+
+            r.onload = ev => {
+
+                audioCtx.decodeAudioData(
+                    ev.target.result,
+                    b => {
+
+                        const src =
+                            audioCtx.createBufferSource();
+
+                        src.buffer = b;
+
+                        setup(src);
+
+                        analyser.connect(audioCtx.destination);
+
+                        src.start();
+                    }
+                );
+            };
+
+            r.readAsArrayBuffer(f);
+        };
+
+        //========================================
+        // UTILS
+        //========================================
+
+        function freqToY(freq, h) {
+
+            const min = 20;
+
+            return h - (
+                (Math.log10(freq) - Math.log10(min))
+                /
+                (Math.log10(maxFreq) - Math.log10(min))
+            ) * h;
         }
-    }
-    if(harmonics>=2){
-        warnings.push("⚠️ Armónicos / posible ripple");
-    }
 
-    // clipping (señal muy alta)
-    let peakCount=0;
-    for(let i=0;i<timeData.length;i++){
-        if(timeData[i]>250 || timeData[i]<5) peakCount++;
-    }
-    if(peakCount>timeData.length*0.1){
-        warnings.push("⚠️ Clipping detectado");
-    }
+        function getColor(v) {
 
-    // falta de graves
-    let lowEnergy=0;
-    for(let i=0;i<50;i++){
-        if(freqData[i]>-60) lowEnergy++;
-    }
-    if(lowEnergy<5){
-        warnings.push("⚠️ Falta de graves");
-    }
+            return `hsl(${240 - v * 240},100%,${v * 50 + 25}%)`;
+        }
 
-    // ===== salida =====
-    let text=`Freq: ${freq.toFixed(1)} Hz | Nivel: ${max.toFixed(1)} dB`;
+        //========================================
+        // DRAW LOOP
+        //========================================
 
-    if(warnings.length){
-        text += " | " + warnings.join(" | ");
-        info.className="info warn";
-    }else{
-        text += " | ✔️ Señal OK";
-        info.className="info ok";
-    }
+        function draw() {
 
-    info.innerText=text;
-}
+            if (!running) return;
 
-//========= CONTROLES =========
-pauseBtn.onclick=()=>{
-    running=!running;
-    if(running) draw();
-};
+            requestAnimationFrame(draw);
 
-fftSel.onchange=e=> fftSize=parseInt(e.target.value);
-rangeSel.onchange=e=> maxFreq=parseInt(e.target.value);
-smoothSel.onchange=e=> smoothing=parseFloat(e.target.value);
+            analyser.getFloatFrequencyData(freqData);
 
-// init
-fixCanvas();
+            analyser.getByteTimeDomainData(timeData);
 
-</script>
+            drawSpec();
+
+            drawRTA();
+
+            drawScope();
+
+            analyze();
+        }
+
+        //========================================
+        // SPECTROGRAM SCALE
+        //========================================
+
+        function drawFreqScale(ctx, w, h, leftPad) {
+
+            const freqs = [
+                20,
+                50,
+                100,
+                200,
+                500,
+                1000,
+                2000,
+                5000,
+                10000,
+                16000
+            ];
+
+            ctx.strokeStyle = "#222";
+
+            ctx.fillStyle = "#888";
+
+            ctx.lineWidth = 1;
+
+            ctx.font = "10px Arial";
+
+            freqs.forEach(f => {
+
+                if (f > maxFreq) return;
+
+                const y = freqToY(f, h);
+
+                // línea horizontal
+
+                ctx.beginPath();
+
+                ctx.moveTo(leftPad, y);
+
+                ctx.lineTo(w, y);
+
+                ctx.stroke();
+
+                // texto
+
+                let txt =
+                    f >= 1000
+                        ? (f / 1000) + "k"
+                        : f;
+
+                ctx.fillText(
+                    txt + "Hz",
+                    5,
+                    y - 2
+                );
+            });
+        }
+
+        //========================================
+        // SPECTROGRAM
+        //========================================
+
+        function drawSpec() {
+
+            const c = spec;
+
+            const ctx = c.getContext("2d");
+
+            const w = c.width;
+
+            const h = c.height;
+
+            const leftPad = 60;
+
+            // mover waterfall
+
+            ctx.drawImage(
+                c,
+                leftPad,
+                0,
+                w - leftPad,
+                h,
+
+                leftPad - 1,
+                0,
+                w - leftPad,
+                h
+            );
+
+            // nueva columna
+
+            ctx.fillStyle = "#000";
+
+            ctx.fillRect(
+                w - 3,
+                0,
+                3,
+                h
+            );
+
+            // dibujar bandas nuevas
+
+            for (let b = 0; b < bands; b++) {
+
+                const f1 =
+                    20 * Math.pow(
+                        maxFreq / 20,
+                        b / bands
+                    );
+
+                const f2 =
+                    20 * Math.pow(
+                        maxFreq / 20,
+                        (b + 1) / bands
+                    );
+
+                let peak = -999;
+
+                for (let i = 1; i < freqData.length; i++) {
+
+                    const f =
+                        i *
+                        (audioCtx.sampleRate / 2)
+                        /
+                        freqData.length;
+
+                    if (f >= f1 && f < f2) {
+
+                        peak = Math.max(
+                            peak,
+                            freqData[i]
+                        );
+                    }
+                }
+
+                if (peak < -998) continue;
+
+                let db = peak;
+
+                bandSmooth[b] =
+                    smoothing * bandSmooth[b]
+                    +
+                    (1 - smoothing) * db;
+
+                let norm =
+                    (bandSmooth[b] + 80) / 50;
+
+                norm = Math.max(
+                    0,
+                    Math.min(1, norm)
+                );
+
+                const y1 = freqToY(f1, h);
+
+                const y2 = freqToY(f2, h);
+
+                ctx.fillStyle = getColor(norm);
+
+                ctx.fillRect(
+                    w - 3,
+                    y2,
+                    3,
+                    Math.max(2, y1 - y2)
+                );
+            }
+
+            // limpiar zona izquierda
+
+            ctx.fillStyle = "#000";
+
+            ctx.fillRect(
+                0,
+                0,
+                leftPad,
+                h
+            );
+
+            // escalas
+
+            drawFreqScale(
+                ctx,
+                w,
+                h,
+                leftPad
+            );
+        }
+
+        //========================================
+        // RTA SCALES
+        //========================================
+
+        function drawRTAScales(ctx, w, h) {
+
+            const freqs = [
+                20,
+                50,
+                100,
+                200,
+                500,
+                1000,
+                2000,
+                5000,
+                10000,
+                16000
+            ];
+
+            ctx.strokeStyle = "#222";
+
+            ctx.fillStyle = "#888";
+
+            ctx.font = "10px Arial";
+
+            // frecuencias
+
+            freqs.forEach(f => {
+
+                if (f > maxFreq) return;
+
+                const x =
+                    Math.log10(f / 20)
+                    /
+                    Math.log10(maxFreq / 20)
+                    * w;
+
+                ctx.beginPath();
+
+                ctx.moveTo(x, 0);
+
+                ctx.lineTo(x, h);
+
+                ctx.stroke();
+
+                let txt =
+                    f >= 1000
+                        ? (f / 1000) + "k"
+                        : f;
+
+                ctx.fillText(
+                    txt,
+                    x + 2,
+                    h - 5
+                );
+            });
+
+            // dB
+
+            for (let db = -100; db <= 0; db += 20) {
+
+                const y =
+                    h -
+                    ((db + 100) / 100) * h;
+
+                ctx.beginPath();
+
+                ctx.moveTo(0, y);
+
+                ctx.lineTo(w, y);
+
+                ctx.stroke();
+
+                ctx.fillText(
+                    db + " dB",
+                    5,
+                    y - 2
+                );
+            }
+        }
+
+        //========================================
+        // RTA
+        //========================================
+
+        function drawRTA() {
+
+            const c = rta;
+
+            const ctx = c.getContext("2d");
+
+            const w = c.width;
+
+            const h = c.height;
+
+            ctx.clearRect(0, 0, w, h);
+
+            drawRTAScales(ctx, w, h);
+
+            ctx.beginPath();
+
+            for (let b = 0; b < bands; b++) {
+
+                const f =
+                    20 * Math.pow(
+                        maxFreq / 20,
+                        b / bands
+                    );
+
+                const x =
+                    Math.log10(f / 20)
+                    /
+                    Math.log10(maxFreq / 20)
+                    * w;
+
+                const y =
+                    h -
+                    ((bandSmooth[b] + 100) / 100)
+                    * h;
+
+                if (b === 0) {
+                    ctx.moveTo(x, y);
+                }
+                else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.strokeStyle = "#00ffaa";
+
+            ctx.lineWidth = 2;
+
+            ctx.stroke();
+        }
+
+        //========================================
+        // OSCILLOSCOPE
+        //========================================
+
+        function drawScope() {
+
+            const c = scope;
+
+            const ctx = c.getContext("2d");
+
+            const w = c.width;
+
+            const h = c.height;
+
+            ctx.clearRect(0, 0, w, h);
+
+            ctx.beginPath();
+
+            for (let i = 0; i < timeData.length; i++) {
+
+                const x =
+                    i / timeData.length * w;
+
+                const y =
+                    (timeData[i] / 255) * h;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                }
+                else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.strokeStyle = "#ffaa00";
+
+            ctx.stroke();
+        }
+
+        //========================================
+        // ANALYZE
+        //========================================
+
+        function analyze() {
+
+            let max = -999;
+
+            let idx = 0;
+
+            for (let i = 0; i < freqData.length; i++) {
+
+                if (freqData[i] > max) {
+
+                    max = freqData[i];
+
+                    idx = i;
+                }
+            }
+
+            const freq =
+                idx *
+                (audioCtx.sampleRate / 2)
+                /
+                freqData.length;
+
+            let detected = [];
+
+            // ruido AC
+
+            if (
+                freq > 45 &&
+                freq < 65 &&
+                max > -60
+            ) {
+                detected.push(
+                    "⚠️ Ruido eléctrico"
+                );
+            }
+
+            // armónicos
+
+            let harmonics = 0;
+
+            for (let h = 2; h <= 5; h++) {
+
+                let i = Math.floor(idx * h);
+
+                if (
+                    i < freqData.length &&
+                    freqData[i] > -70
+                ) {
+                    harmonics++;
+                }
+            }
+
+            if (harmonics >= 2) {
+
+                detected.push(
+                    "⚠️ Armónicos"
+                );
+            }
+
+            // clipping
+
+            let peakCount = 0;
+
+            for (let i = 0; i < timeData.length; i++) {
+
+                if (
+                    timeData[i] > 250 ||
+                    timeData[i] < 5
+                ) {
+                    peakCount++;
+                }
+            }
+
+            if (
+                peakCount >
+                timeData.length * 0.1
+            ) {
+                detected.push(
+                    "⚠️ Clipping"
+                );
+            }
+
+            // hold system
+
+            const now = performance.now();
+
+            detected.forEach(w => {
+
+                activeWarnings[w] = now;
+            });
+
+            let visible = [];
+
+            Object.keys(activeWarnings).forEach(w => {
+
+                if (
+                    now - activeWarnings[w]
+                    < HOLD_TIME
+                ) {
+                    visible.push(w);
+                }
+            });
+
+            // output
+
+            let text =
+                `Freq: ${freq.toFixed(1)} Hz | `
+                +
+                `Nivel: ${max.toFixed(1)} dB`;
+
+            if (visible.length) {
+
+                text +=
+                    " | "
+                    +
+                    visible.join(" | ");
+
+                info.className = "info warn";
+            }
+            else {
+
+                text += " | ✔️ Señal OK";
+
+                info.className = "info ok";
+            }
+
+            info.innerText = text;
+        }
+
+        //========================================
+        // CONTROLS
+        //========================================
+
+        pauseBtn.onclick = () => {
+
+            running = !running;
+
+            if (running) {
+                draw();
+            }
+        };
+
+        fftSel.onchange = e => {
+
+            fftSize = parseInt(e.target.value);
+        };
+
+        rangeSel.onchange = e => {
+
+            maxFreq = parseInt(e.target.value);
+        };
+
+        smoothSel.onchange = e => {
+
+            smoothing = parseFloat(e.target.value);
+        };
+
+        //========================================
+        // START
+        //========================================
+
+        fixCanvas();
+
+    </script>
 
 </body>
+
 </html>
